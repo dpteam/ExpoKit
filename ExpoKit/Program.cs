@@ -821,7 +821,8 @@ public class Program
 	private static string _currentMainStatus = "Idle";
 	private static string _currentSubStatus = "";
 	private static object _titleLock = new object();
-	private static bool _skipRequested = false;
+    private static string _sessionTimestamp = "";
+    private static bool _skipRequested = false;
 	private static bool _skipConfirmed = false;
 	private static DateTime _skipRequestTime = DateTime.MinValue;
 	private static Thread _inputThread;
@@ -1016,8 +1017,9 @@ public class Program
 		Console.WriteLine("");
 	}
 	private static void RunPipeline(string[] args)
-	{
-		List<string> modes = new List<string>();
+    {
+        _sessionTimestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        List<string> modes = new List<string>();
 		string target = null;
 		string strategy = "batch";
 		string outputDir = null;
@@ -1134,9 +1136,9 @@ public class Program
 		}
 		if (modes.Contains("dump") && strategy != "immediate")
 		{
-			UpdateTitleStatus("Dumping", "Preparing...");
-			Log($"[INFO] Starting Dump phase for {currentTargets.Count} targets...", ConsoleColor.Cyan);
-			if (!modes.Contains("scan"))
+            UpdateTitleStatus("Dumping", "Preparing...");
+            Log($"[INFO] Starting Dump phase for {currentTargets.Count} targets...", ConsoleColor.Cyan);
+            if (!modes.Contains("scan"))
 			{
 				if (IsLocalPath(target))
 				{
@@ -1149,30 +1151,30 @@ public class Program
 			}
 			else
 			{
-				string batchRoot = outputDir ?? Path.Combine(Directory.GetCurrentDirectory(), "DumpResults_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
-				int count = 0;
-				foreach (string url in currentTargets)
-				{
-					count++;
-					ResetSkipState();
-					string safeName = GetDirFromUrl(url);
-					string tDir = Path.Combine(batchRoot, safeName);
-					Log($"--- Dumping {count}/{currentTargets.Count}: {url} ---", ConsoleColor.Cyan);
-					try
-					{
-						RunSingleDump(url, tDir);
-					}
-					catch (SkipException)
-					{
-						Log("[WARN] Skipped by user: " + url, ConsoleColor.Yellow);
-					}
-					catch (Exception ex2)
-					{
-						Log("[ERR] Dump failed " + url + ": " + ex2.Message, ConsoleColor.Red);
-						Verbose(ex2.StackTrace);
-					}
-				}
-			}
+                // Убираем создание batchRoot и ручное управление папками, RunSingleDump теперь это делает
+                int count = 0;
+                foreach (string url in currentTargets)
+                {
+                    count++;
+                    ResetSkipState();
+                    // Выводим лог, но папку не генерируем здесь
+                    Log($"--- Dumping {count}/{currentTargets.Count}: {url} ---", ConsoleColor.Cyan);
+                    try
+                    {
+                        // Передаем null, чтобы RunSingleDump сам выбрал папку по типу
+                        RunSingleDump(url, null);
+                    }
+                    catch (SkipException)
+                    {
+                        Log("[WARN] Skipped by user: " + url, ConsoleColor.Yellow);
+                    }
+                    catch (Exception ex2)
+                    {
+                        Log("[ERR] Dump failed " + url + ": " + ex2.Message, ConsoleColor.Red);
+                        Verbose(ex2.StackTrace);
+                    }
+                }
+            }
 		}
 		if (modes.Contains("extract-links"))
 		{
@@ -1215,8 +1217,10 @@ public class Program
 					{
 						foundUrls.Add(text);
 						foundCount++;
-						File.AppendAllText("valid.txt", text + Environment.NewLine);
-						Log("[FOUND] " + text, ConsoleColor.Green);
+                        string scanResultsDir = Path.Combine("ExpoKit_Results", $"ScanResults_{_sessionTimestamp}");
+                        Directory.CreateDirectory(scanResultsDir); // Убедимся, что папка существует
+                        File.AppendAllText(Path.Combine(scanResultsDir, "valid.txt"), text + Environment.NewLine);
+                        Log("[FOUND] " + text, ConsoleColor.Green);
 					}
 				}
 				lock (lck)
@@ -1310,15 +1314,36 @@ public class Program
 		}
 		return null;
 	}
-	private static void RunSingleDump(string url, string outputDir, string[] overrides = null)
-	{
-		Verbose("RunSingleDump invoked for " + url);
-		string urlLower = url.ToLower();
-		DumperBase dumper = null;
-		dumper = (urlLower.Contains(".git") ? new GitRecursiveDumper(url, outputDir, _globalJobs, _globalRetry, _globalTimeout, _globalUserAgent, _globalProxy, _globalHeaders) : (urlLower.Contains(".svn") ? new SvnDumper(url, outputDir, _globalJobs, _globalRetry, _globalTimeout, _globalUserAgent, _globalProxy, _globalHeaders) : ((!urlLower.Contains(".ds_store")) ? ((DumperBase)new IndexDumper(url, outputDir, _globalUserAgent, _globalProxy)) : ((DumperBase)new DsStoreDumper(url, outputDir, _globalUserAgent, _globalProxy)))));
-		dumper.Start();
-	}
-	private static void ProcessBatchDump(string source, string baseDir)
+    private static void RunSingleDump(string url, string outputDir, string[] overrides = null)
+    {
+        Verbose("RunSingleDump invoked for " + url);
+
+        // Если папка вывода не задана, формируем её автоматически
+        if (string.IsNullOrEmpty(outputDir))
+        {
+            string urlLower = url.ToLower();
+            string dumpType;
+
+            // Определяем тип по URL
+            if (urlLower.Contains(".git")) dumpType = "GitDumps";
+            else if (urlLower.Contains(".svn")) dumpType = "SvnDumps";
+            else if (urlLower.Contains(".ds_store")) dumpType = "DsStoreDumps";
+            else dumpType = "IndexDumps"; // По умолчанию для --index или неизвестных
+
+            string safeName = GetDirFromUrl(url);
+            // Формируем путь: ExpoKit_Results\Тип_Дата\Сайт
+            outputDir = Path.Combine("ExpoKit_Results", $"{dumpType}_{_sessionTimestamp}", safeName);
+            Verbose("Output directory auto-generated: " + outputDir);
+        }
+
+        // Определяем дампер
+        string urlLower2 = url.ToLower();
+        DumperBase dumper = null;
+        dumper = (urlLower2.Contains(".git") ? new GitRecursiveDumper(url, outputDir, _globalJobs, _globalRetry, _globalTimeout, _globalUserAgent, _globalProxy, _globalHeaders) : (urlLower2.Contains(".svn") ? new SvnDumper(url, outputDir, _globalJobs, _globalRetry, _globalTimeout, _globalUserAgent, _globalProxy, _globalHeaders) : ((!urlLower2.Contains(".ds_store")) ? ((DumperBase)new IndexDumper(url, outputDir, _globalUserAgent, _globalProxy)) : ((DumperBase)new DsStoreDumper(url, outputDir, _globalUserAgent, _globalProxy)))));
+        dumper.Start();
+    }
+
+    private static void ProcessBatchDump(string source, string baseDir)
 	{
 		List<string> urls = new List<string>();
 		if (File.Exists(source))
@@ -1355,26 +1380,34 @@ public class Program
 				}
 			}
 		}
-		Log($"Found {urls.Count} URLs to process.", ConsoleColor.Green);
-		string batchRoot = baseDir ?? Path.Combine(Directory.GetCurrentDirectory(), "DumpBatch_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
-		int count = 0;
-		foreach (string url in urls)
-		{
-			count++;
-			string safeName = GetDirFromUrl(url);
-			string targetDir = Path.Combine(batchRoot, safeName);
-			Log($"--- Processing {count}/{urls.Count}: {url} -> {targetDir} ---", ConsoleColor.Cyan);
-			try
-			{
-				RunSingleDump(url, targetDir);
-			}
-			catch (Exception ex)
-			{
-				Log("Error processing " + url + ": " + ex.Message, ConsoleColor.Red);
-				Verbose(ex.StackTrace);
-			}
-		}
-	}
+
+        Log($"Found {urls.Count} URLs to process.", ConsoleColor.Green);
+
+        // Если baseDir не задан, создаем общий для батча
+        if (string.IsNullOrEmpty(baseDir))
+        {
+            baseDir = Path.Combine("ExpoKit_Results", $"BatchDumps_{_sessionTimestamp}");
+        }
+
+        int count = 0;
+        foreach (string url in urls)
+        {
+            count++;
+            string safeName = GetDirFromUrl(url);
+            // Складываем всё в папку батча
+            string targetDir = Path.Combine(baseDir, safeName);
+            Log($"--- Processing {count}/{urls.Count}: {url} -> {targetDir} ---", ConsoleColor.Cyan);
+            try
+            {
+                RunSingleDump(url, targetDir);
+            }
+            catch (Exception ex)
+            {
+                Log("Error processing " + url + ": " + ex.Message, ConsoleColor.Red);
+                Verbose(ex.StackTrace);
+            }
+        }
+    }
 	private static void RunLinkExtractorMode(string[] args)
 	{
 		if (args.Length < 2)
