@@ -33,4 +33,4 @@ jobs:
       uses: actions/upload-artifact@v6
       with:
         name: ExpoKit-Release
-        path: ExpoKit/bin/Release/net40/
+        path: D:/a/ExpoKit/ExpoKit/bin/Release/net40/ExpoKit.exe
