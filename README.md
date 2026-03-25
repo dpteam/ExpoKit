@@ -1,16 +1,12 @@
 # ExpoKit
 
 ```
-
-░██████████                                  ░██     ░██ ░██   ░██    
-░██                                          ░██    ░██        ░██    
-░██         ░██    ░██ ░████████   ░███████  ░██   ░██   ░██░████████ 
-░█████████   ░██  ░██  ░██    ░██ ░██    ░██ ░███████    ░██   ░██    
-░██           ░█████   ░██    ░██ ░██    ░██ ░██   ░██   ░██   ░██    
-░██          ░██  ░██  ░███   ░██ ░██    ░██ ░██    ░██  ░██   ░██    
-░██████████ ░██    ░██ ░██░█████   ░███████  ░██     ░██ ░██    ░████ 
-                       ░██ Ultimate Dump Solution.                                  
-
+███████╗██╗  ██╗██████╗  ██████╗ ██╗  ██╗██╗████████╗
+██╔════╝╚██╗██╔╝██╔══██╗██╔═══██╗██║ ██╔╝██║╚══██╔══╝
+█████╗   ╚███╔╝ ██████╔╝██║   ██║█████╔╝ ██║   ██║   
+██╔══╝   ██╔██╗ ██╔═══╝ ██║   ██║██╔═██╗ ██║   ██║   
+███████╗██╔╝ ██╗██║     ╚██████╔╝██║  ██╗██║   ██║   
+╚══════╝╚═╝  ╚═╝╚═╝      ╚═════╝ ╚═╝  ╚═╝╚═╝   ╚═╝   
 ```
 
 **ExpoKit** — Ultimate Dump Solution. A multi-functional tool for scanning and dumping data from exposed repositories and files on web servers. Designed for security auditing and identifying accidentally published sensitive data.
@@ -46,7 +42,7 @@ dotnet build -c Release
 msbuild ExpoKit.csproj /p:Configuration=Release
 ```
 
-*Note: Requires .NET Framework or .NET Core/5+ depending on project configuration.*
+*Note: Requires .NET Framework 4.0 (For potential Windows XP Compatiable) or .NET Core/5+ depending on project configuration.*
 
 ### Basic Usage
 
@@ -57,7 +53,7 @@ ExpoKit.exe --dump https://example.com/.git ./output
 # Scan and dump immediately
 ExpoKit.exe --scan --dump --strategy=immediate 192.168.1.0/24
 
-# Dump from a list of URLs
+# Dump from a list of URLs (or domains list)
 ExpoKit.exe --dump targets.txt ./output
 ```
 
@@ -130,23 +126,6 @@ ExpoKit.exe --extract-domains ./data_folder domains.txt
 
 ```bash
 ExpoKit.exe --dump https://target.com/.git ./output -v --jobs=20 --retry=5
-```
-
-## 🗂️ Project Structure
-
-```
-ExpoKit/
-├── Program.cs              # Entry point and main logic
-├── DumperBase.cs           # Base class for dumpers
-├── GitRecursiveDumper.cs   # Git repository dumper
-├── SvnDumper.cs            # SVN repository dumper
-├── DsStoreDumper.cs        # .DS_Store parser
-├── IndexDumper.cs          # Directory listing dumper
-├── Helpers/
-│   ├── ZlibHelper.cs       # Zlib decompression
-│   ├── DSStoreParser.cs    # DS_Store parsing logic
-│   └── Sanitizer.cs        # Input sanitization
-└── Logs/                   # Log files directory
 ```
 
 ## 📊 Target Formats
