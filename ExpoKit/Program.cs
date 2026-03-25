@@ -147,40 +147,48 @@ public class Program
 				Log("Failed to fetch SVN metadata.", ConsoleColor.Red);
 			}
 		}
-		private void ParseWcDb(byte[] dbData)
-		{
-			string dbPath = Path.Combine(OutputDir, "wc.db");
-			File.WriteAllBytes(dbPath, dbData);
-			Verbose("wc.db saved.");
-			string raw = Encoding.ASCII.GetString(dbData);
-			MatchCollection shaMatches = Regex.Matches(raw, "\\$sha1\\$([a-f0-9]{40})", RegexOptions.IgnoreCase);
-			Log($"Potential SHA1 hashes found: {shaMatches.Count}", ConsoleColor.Cyan);
-			int count = 0;
-			foreach (Match m in shaMatches)
-			{
-				string sha = m.Groups[1].Value;
-				string pathUrl = BaseUrl + "/pristine/" + sha.Substring(0, 2) + "/" + sha + ".svn-base";
-				string localPath = Path.Combine(OutputDir, "pristine", sha.Substring(0, 2), sha + ".svn-base");
-				SafeCreateDir(Path.GetDirectoryName(localPath));
-				try
-				{
-					SetStatus("Rev: " + sha.Substring(0, 7));
-					byte[] data = DownloadData(pathUrl);
-					if (data != null)
-					{
-						File.WriteAllBytes(localPath, data);
-						Log("[OK] Rev: " + sha.Substring(0, 7), ConsoleColor.Green);
-						count++;
-					}
-				}
-				catch (Exception ex)
-				{
-					Verbose("Failed to download rev " + sha + ": " + ex.Message);
-				}
-			}
-			Log($"SVN Dump finished. Downloaded {count} files.", ConsoleColor.Green);
-		}
-		private void ParseEntries(string content)
+        private void ParseWcDb(byte[] dbData)
+        {
+            // Проверка на ложное срабатывание (HTML вместо базы данных)
+            string sample = Encoding.ASCII.GetString(dbData, 0, Math.Min(dbData.Length, 512));
+            if (sample.IndexOf("<html", StringComparison.OrdinalIgnoreCase) >= 0 || sample.IndexOf("<!DOCTYPE", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                Log("wc.db contains HTML content. Invalid SVN repository (False Positive).", ConsoleColor.Red);
+                return;
+            }
+
+            string dbPath = Path.Combine(OutputDir, "wc.db");
+            File.WriteAllBytes(dbPath, dbData);
+            Verbose("wc.db saved.");
+            string raw = Encoding.ASCII.GetString(dbData);
+            MatchCollection shaMatches = Regex.Matches(raw, "\\$sha1\\$([a-f0-9]{40})", RegexOptions.IgnoreCase);
+            Log($"Potential SHA1 hashes found: {shaMatches.Count}", ConsoleColor.Cyan);
+            int count = 0;
+            foreach (Match m in shaMatches)
+            {
+                string sha = m.Groups[1].Value;
+                string pathUrl = BaseUrl + "/pristine/" + sha.Substring(0, 2) + "/" + sha + ".svn-base";
+                string localPath = Path.Combine(OutputDir, "pristine", sha.Substring(0, 2), sha + ".svn-base");
+                SafeCreateDir(Path.GetDirectoryName(localPath));
+                try
+                {
+                    SetStatus("Rev: " + sha.Substring(0, 7));
+                    byte[] data = DownloadData(pathUrl);
+                    if (data != null)
+                    {
+                        File.WriteAllBytes(localPath, data);
+                        Log("[OK] Rev: " + sha.Substring(0, 7), ConsoleColor.Green);
+                        count++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Verbose("Failed to download rev " + sha + ": " + ex.Message);
+                }
+            }
+            Log($"SVN Dump finished. Downloaded {count} files.", ConsoleColor.Green);
+        }
+        private void ParseEntries(string content)
 		{
 			Log("Legacy SVN dump logic not fully implemented.", ConsoleColor.Yellow);
 		}
@@ -215,28 +223,36 @@ public class Program
 			BaseUrl = BaseUrl.TrimEnd('/');
 			Verbose("Normalized BaseUrl: " + BaseUrl);
 		}
-		public override void Start()
-		{
-			Log("Starting Git Dump: " + BaseUrl, ConsoleColor.White);
-			UpdateTitleStatus("Git Dump", "Initializing...");
-			SafeCreateDir(OutputDir);
-			Verbose("Checking for directory listing...");
-			if (CheckDirectoryListing())
-			{
-				Log("Directory listing detected. Switching to recursive download mode.", ConsoleColor.Green);
-				RunRecursiveDownload();
-				FinalizeGit();
-				return;
-			}
-			Log("Directory listing not available. Using brute-force mode.", ConsoleColor.Yellow);
-			Verbose("Downloading HEAD...");
-			string headContent = FetchFileAndQueue("HEAD");
-			if (string.IsNullOrEmpty(headContent))
-			{
-				Log("Failed to download HEAD. Aborting.", ConsoleColor.Red);
-				return;
-			}
-			EnqueueTask(_gitPathPrefix + "config");
+        public override void Start()
+        {
+            Log("Starting Git Dump: " + BaseUrl, ConsoleColor.White);
+            UpdateTitleStatus("Git Dump", "Initializing...");
+            SafeCreateDir(OutputDir);
+            Verbose("Checking for directory listing...");
+            if (CheckDirectoryListing())
+            {
+                Log("Directory listing detected. Switching to recursive download mode.", ConsoleColor.Green);
+                RunRecursiveDownload();
+                FinalizeGit();
+                return;
+            }
+            Log("Directory listing not available. Using brute-force mode.", ConsoleColor.Yellow);
+            Verbose("Downloading HEAD...");
+            string headContent = FetchFileAndQueue("HEAD");
+            if (string.IsNullOrEmpty(headContent))
+            {
+                Log("Failed to download HEAD. Aborting.", ConsoleColor.Red);
+                return;
+            }
+
+            // Проверка на ложное срабатывание (HTML вместо Git данных)
+            if (headContent.IndexOf("<html", StringComparison.OrdinalIgnoreCase) >= 0 || headContent.IndexOf("<!DOCTYPE", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                Log("HEAD contains HTML content. Invalid Git repository (False Positive).", ConsoleColor.Red);
+                return;
+            }
+
+            EnqueueTask(_gitPathPrefix + "config");
 			EnqueueTask(_gitPathPrefix + "description");
 			EnqueueTask(_gitPathPrefix + "COMMIT_EDITMSG");
 			EnqueueTask(_gitPathPrefix + "index");
@@ -719,16 +735,31 @@ public class Program
 				Log("Failed to download .DS_Store", ConsoleColor.Red);
 				return;
 			}
+
+			// Проверка на ложное срабатывание (HTML вместо бинарника)
+			string sample = Encoding.ASCII.GetString(data, 0, Math.Min(data.Length, 512));
+			if (sample.IndexOf("<html", StringComparison.OrdinalIgnoreCase) >= 0 || sample.IndexOf("<!DOCTYPE", StringComparison.OrdinalIgnoreCase) >= 0)
+			{
+				Log(".DS_Store content is HTML. Invalid (False Positive).", ConsoleColor.Red);
+				return;
+			}
+
 			List<string> names = DSStoreParser.Parse(data);
 			Log($"Found {names.Count} entries.", ConsoleColor.Green);
 			SafeCreateDir(OutputDir);
+
+			// Используем Uri для базового адреса, чтобы корректно резолвить ссылки
+			// Если URL заканчивался на .DS_Store, мы берем родительскую директорию
+			Uri baseFolderUri = new Uri(dsUrl.EndsWith(".DS_Store") ? dsUrl.Substring(0, dsUrl.LastIndexOf('/')) : dsUrl);
+
 			foreach (string name in names)
 			{
 				try
 				{
-					string folder = (BaseUrl.EndsWith(".DS_Store") ? Path.GetDirectoryName(BaseUrl).Replace("\\", "/") : BaseUrl);
-					string fileUrl = folder + "/" + Uri.EscapeDataString(name);
+					// Формируем URL через Uri, чтобы избежать ошибок формата пути
+					string fileUrl = new Uri(baseFolderUri, Uri.EscapeDataString(name)).ToString();
 					string localPath = Path.Combine(OutputDir, name);
+
 					SetStatus("Downloading: " + name);
 					if (!File.Exists(localPath))
 					{
@@ -807,10 +838,10 @@ public class Program
 					}
 				}
 			}
-		}
-	}
+        }
+    }
 
-	private static string _logFilePath = "";
+    private static string _logFilePath = "";
 	private static bool _isVerbose = false;
 	private static int _globalJobs = 10;
 	private static int _globalRetry = 3;
